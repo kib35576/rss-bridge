@@ -16,52 +16,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-
-      - name: Install dependencies
-        run: composer install --no-dev --optimize-autoloader
-
-      - name: Create custom bridge for UDN news
+      - name: Download CNA RSS feed
         run: |
-          cat > bridges/UDNNewsBridge.php << 'EOF'
-          <?php
-          class UDNNewsBridge extends BridgeAbstract {
-              const NAME = '聯合新聞網 (即時)';
-              const URI = 'https://udn.com/news/breaknews/1/99';
-              const DESCRIPTION = '抓取聯合新聞網即時新聞';
-              const MAINTAINER = 'your-name';
-
-              public function collectData() {
-                  $html = getSimpleHTMLDOM(self::URI);
-                  foreach($html->find('div.story-list__item') as $element) {
-                      $item = [];
-                      $titleElem = $element->find('h3 a', 0);
-                      $item['title'] = $titleElem->plaintext ?? '';
-                      $item['uri'] = 'https://udn.com' . ($titleElem->href ?? '');
-                      $timeElem = $element->find('time', 0);
-                      $item['timestamp'] = strtotime($timeElem->datetime ?? '');
-                      $item['content'] = $element->find('p', 0)->plaintext ?? '';
-                      $this->items[] = $item;
-                  }
-              }
-          }
-          EOF
-
-      - name: Generate RSS feed
-        run: |
-          php -f index.php "action=display&bridge=UDNNewsBridge&format=Atom" > feed.xml
+          curl -s -L "https://www.cna.com.tw/rss/allnews.xml" -o feed.xml
+          # 檢查是否成功下載
+          if [ -s feed.xml ]; then
+            echo "✅ RSS feed downloaded successfully"
+          else
+            echo "❌ Failed to download RSS feed"
+            exit 1
+          fi
 
       - name: Commit and push if changed
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          # 拉取遠端變更並合併（允許非快進合併）
+          git pull origin main --no-rebase --allow-unrelated-histories
           git add feed.xml
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
             git commit -m "Update RSS feed $(date -u '+%Y-%m-%d %H:%M:%S')"
-            git push
+            git push origin main
           fi
